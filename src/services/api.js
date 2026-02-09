@@ -18,13 +18,13 @@ export const organizationsAPI = {
 
 // Projects API - using paths directly from OpenAPI spec
 export const projectsAPI = {
-  list: async (orgName) => {
-    const response = await fetch(`/orgs/${orgName}/projects`);
+  list: async (namespaceName) => {
+    const response = await fetch(`/namespaces/${namespaceName}/projects`);
     const result = await handleResponse(response);
     return result.data?.items || [];
   },
-  create: async (orgName, projectData) => {
-    const response = await fetch(`/orgs/${orgName}/projects`, {
+  create: async (namespaceName, projectData) => {
+    const response = await fetch(`/namespaces/${namespaceName}/projects`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -34,8 +34,8 @@ export const projectsAPI = {
     const result = await handleResponse(response);
     return result.data;
   },
-  get: async (orgName, projectName) => {
-    const response = await fetch(`/orgs/${orgName}/projects/${projectName}`);
+  get: async (namespaceName, projectName) => {
+    const response = await fetch(`/namespaces/${namespaceName}/projects/${projectName}`);
     const result = await handleResponse(response);
     return result.data;
   }
@@ -43,13 +43,13 @@ export const projectsAPI = {
 
 // Components API - using paths directly from OpenAPI spec
 export const componentsAPI = {
-  list: async (orgName, projectName) => {
-    const response = await fetch(`/orgs/${orgName}/projects/${projectName}/components`);
+  list: async (namespaceName, projectName) => {
+    const response = await fetch(`/namespaces/${namespaceName}/projects/${projectName}/components`);
     const result = await handleResponse(response);
     return result.data?.items || [];
   },
-  create: async (orgName, projectName, componentData) => {
-    const response = await fetch(`/orgs/${orgName}/projects/${projectName}/components`, {
+  create: async (namespaceName, projectName, componentData) => {
+    const response = await fetch(`/namespaces/${namespaceName}/projects/${projectName}/components`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -59,8 +59,8 @@ export const componentsAPI = {
     const result = await handleResponse(response);
     return result.data;
   },
-  get: async (orgName, projectName, componentName) => {
-    const response = await fetch(`/orgs/${orgName}/projects/${projectName}/components/${componentName}`);
+  get: async (namespaceName, projectName, componentName) => {
+    const response = await fetch(`/namespaces/${namespaceName}/projects/${projectName}/components/${componentName}`);
     const result = await handleResponse(response);
     return result.data;
   }
