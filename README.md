@@ -1,6 +1,6 @@
 # CPAPI Test Application
 
-A React single page application for managing organizations, projects, and components using the CPAPI backend.
+A React single page application for managing organizations, projects, and components through `platform-api-service` in a local OpenChoreo cluster.
 
 ## Features
 
@@ -36,19 +36,24 @@ The application will open at `http://localhost:3000`
 
 ## Backend Configuration
 
-The application is configured to use the backend at:
+Default backend base URL:
+```bash
+REACT_APP_API_BASE_URL=http://default.development.openchoreoapis.localhost:19080/platform-api-service
 ```
-http://development.wso2cloud-cp.preview-dv.choreoapis.dev/platform-api-service/cpapi/api/v1
+
+With this setting, the app routes OC operations via:
+```text
+{REACT_APP_API_BASE_URL}/wso2cloud-dp/*
 ```
 
-### CORS Proxy Setup
+### Fallback Proxy Setup
 
-To handle CORS errors in development, a proxy is configured using `http-proxy-middleware`. The proxy:
-- Intercepts requests to `/api/*` 
-- Forwards them to the backend server
-- Handles CORS headers automatically
+If you clear `REACT_APP_API_BASE_URL`, the app falls back to CRA proxy mode using `http-proxy-middleware`:
+- Intercepts requests to `/oc-api/*`
+- Forwards to `http://default.development.openchoreoapis.localhost:19080/platform-api-service/wso2cloud-dp/*`
+- Forwards browser `Authorization` header as-is (no proxy token injection)
 
-The proxy configuration is in `src/setupProxy.js`. In production, you would need to configure CORS on the backend server or use a reverse proxy.
+Fallback proxy configuration is in `src/setupProxy.js`.
 
 ## Project Structure
 
@@ -79,7 +84,6 @@ src/
 
 ## Notes
 
-- No authentication/authorization is implemented as per requirements
+- Authentication token comes from the app auth provider and is sent as bearer token on API calls
+- Proxy-side system token acquisition is removed
 - Form fields are plain text inputs without validation
-- All URLs are hardcoded for this demo application
-
