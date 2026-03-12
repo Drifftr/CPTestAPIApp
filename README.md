@@ -1,89 +1,75 @@
-# CPAPI Test Application
+# CPTestAPIApp
 
-A React single page application for managing organizations, projects, and components through `platform-api-service` in a local OpenChoreo cluster.
+React console demo that shows end-to-end integration with Platform API Service (PAS) using Asgardeo (Thunder) OIDC. It demonstrates auth, project and component management, build triggers, deployment triggers, and read-only retrieval of workflow runs and deployment details.
+
+For the platform-console onboarding guide, see:
+- `../docs/cptestapp-onboarding-demo.md`
 
 ## Features
 
-- **Organization Management**: Select and switch between organizations via dropdown
-- **Project Management**: 
-  - View projects as tiles on the landing page
-  - Create new projects with a simple form
-- **Component Management**:
-  - View components within a project
-  - Create new components with a form
-  - View detailed component information
+- OIDC auth with `@asgardeo/auth-react` and a dev bypass mode.
+- Org context resolved from JWT claims (no org API call required).
+- Resource tree UI (org -> projects -> components).
+- Create project and create component (optional workflow config).
+- Trigger build (workflow run create) and poll status.
+- Trigger deploy (create release + deploy) and view release bindings.
 
-## Getting Started
+## Quick Start
 
-### Prerequisites
-
-- Node.js (v14 or higher)
-- npm or yarn
-
-### Installation
-
-1. Install dependencies:
 ```bash
+cd /Users/yomal/Documents/Openchoreo-local/CPTestAPIApp
 npm install
-```
-
-2. Start the development server:
-```bash
 npm start
 ```
 
-The application will open at `http://localhost:3000`
+Bypass auth locally:
 
-## Backend Configuration
-
-Default backend base URL:
 ```bash
-REACT_APP_API_BASE_URL=http://default.development.openchoreoapis.localhost:19080/platform-api-service
+REACT_APP_DEV_BYPASS_AUTH=true npm start
 ```
 
-With this setting, the app routes OC operations via:
-```text
-{REACT_APP_API_BASE_URL}/wso2cloud-dp/*
-```
+For browser-based local dev, keep `REACT_APP_API_BASE_URL` empty so the CRA proxy in `src/setupProxy.js` avoids CORS issues.
 
-### Fallback Proxy Setup
+## Configuration
 
-If you clear `REACT_APP_API_BASE_URL`, the app falls back to CRA proxy mode using `http-proxy-middleware`:
-- Intercepts requests to `/oc-api/*`
-- Forwards to `http://default.development.openchoreoapis.localhost:19080/platform-api-service/wso2cloud-dp/*`
-- Forwards browser `Authorization` header as-is (no proxy token injection)
+Defaults are in `src/config/env.js`:
 
-Fallback proxy configuration is in `src/setupProxy.js`.
+- `REACT_APP_THUNDER_URL` (default `http://platform-idp.127.0.0.1.nip.io:19080`)
+- `REACT_APP_THUNDER_CLIENT_ID` (default `CLOUD_CONSOLE`)
+- `REACT_APP_THUNDER_SCOPES` (default `openid profile email`)
+- `REACT_APP_SIGN_IN_REDIRECT_URL` (default `http://localhost:3000`)
+- `REACT_APP_SIGN_OUT_REDIRECT_URL` (default `http://localhost:3000`)
+- `REACT_APP_API_BASE_URL` (empty by default; empty means CRA proxy mode)
+- `REACT_APP_DEV_BYPASS_AUTH` (`true` to use MockAuthProvider)
 
 ## Project Structure
 
 ```
 src/
-  ├── components/          # Reusable components
-  │   ├── OrganizationSelector.js
-  │   ├── CreateProjectModal.js
-  │   └── CreateComponentModal.js
-  ├── pages/              # Page components
-  │   ├── LandingPage.js
-  │   ├── ProjectPage.js
-  │   └── ComponentDetailPage.js
-  ├── services/           # API service functions
-  │   └── api.js
-  ├── App.js             # Main app component with routing
-  └── index.js           # Entry point
+  auth/
+    AuthProvider.js
+    AuthGuard.js
+    MockAuthProvider.js
+    UserInfo.js
+  components/
+    console/
+      CreateProjectDialog.tsx
+      CreateComponentDialog.tsx
+      DetailPanel.tsx
+      ResourceTree.tsx
+  config/
+    env.js
+  pages/
+    ConsolePage.tsx
+  services/
+    api.js
+  setupProxy.js
+  App.js
+  index.js
 ```
-
-## Usage
-
-1. **Select Organization**: Use the dropdown at the top to select an organization
-2. **View Projects**: Projects are displayed as tiles on the landing page
-3. **Create Project**: Click "Create New Project" button and fill in the form
-4. **View Components**: Click on a project tile to see its components
-5. **Create Component**: Click "Create New Component" button and fill in the form
-6. **View Component Details**: Click on a component tile to see detailed information
 
 ## Notes
 
-- Authentication token comes from the app auth provider and is sent as bearer token on API calls
-- Proxy-side system token acquisition is removed
-- Form fields are plain text inputs without validation
+- User and org creation are delegated to the Platform IdP (Thunder) during login or signup; the app consumes the resulting token claims.
+- Org context is derived from token claims (`ouHandle`, `ouName`).
+- API calls always include `Authorization: Bearer <token>` from the auth provider.

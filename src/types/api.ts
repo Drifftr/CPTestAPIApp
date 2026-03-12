@@ -57,6 +57,57 @@ export interface ComponentWorkflowRun {
   createdAt: string;
 }
 
+export interface ReleaseBinding {
+  name: string;
+  componentName: string;
+  projectName: string;
+  namespaceName: string;
+  environment: string;
+  releaseName?: string;
+  status?: string;
+  createdAt: string;
+}
+
+export interface EnvironmentReleaseResource {
+  id: string;
+  kind: string;
+  name: string;
+  namespace: string;
+  healthStatus?: string;
+  object?: {
+    spec?: {
+      hostnames?: string[];
+      ports?: Array<{ name?: string; port: number; protocol?: string; targetPort?: number }>;
+      rules?: Array<{
+        backendRefs?: Array<{ name: string; port: number }>;
+        matches?: Array<{ path?: { type: string; value: string } }>;
+      }>;
+      [key: string]: any;
+    };
+    [key: string]: any;
+  };
+  status?: Record<string, any>;
+}
+
+export interface EnvironmentRelease {
+  spec: {
+    owner: { projectName: string; componentName: string };
+    environmentName: string;
+    resources: EnvironmentReleaseResource[];
+    targetPlane: string;
+  };
+  status?: {
+    resources: Array<{
+      id: string;
+      kind: string;
+      name: string;
+      namespace: string;
+      healthStatus?: string;
+      [key: string]: any;
+    }>;
+  };
+}
+
 export interface CreateProjectRequest {
   name: string;
   displayName?: string;

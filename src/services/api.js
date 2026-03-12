@@ -119,3 +119,60 @@ export const workflowRunsAPI = {
     return result.data;
   },
 };
+
+export const componentReleasesAPI = {
+  create: async (projectName, componentName) => {
+    const result = await authenticatedFetch(
+      `${OC_API_PREFIX}/projects/${projectName}/components/${componentName}/component-releases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }
+    );
+    return result.data ?? result;
+  },
+  list: async (projectName, componentName) => {
+    const result = await authenticatedFetch(
+      `${OC_API_PREFIX}/projects/${projectName}/components/${componentName}/component-releases`
+    );
+    return result.data?.items || [];
+  },
+};
+
+export const releaseBindingsAPI = {
+  list: async (projectName, componentName) => {
+    const result = await authenticatedFetch(
+      `${OC_API_PREFIX}/projects/${projectName}/components/${componentName}/release-bindings`
+    );
+    return result.data?.items || result.items || [];
+  },
+  getEnvironmentRelease: async (projectName, componentName, environment) => {
+    const result = await authenticatedFetch(
+      `${OC_API_PREFIX}/projects/${projectName}/components/${componentName}/environments/${environment}/release`
+    );
+    return result.data ?? result;
+  },
+};
+
+export const deployAPI = {
+  deploy: async (projectName, componentName, releaseName) => {
+    const result = await authenticatedFetch(
+      `${OC_API_PREFIX}/projects/${projectName}/components/${componentName}/deploy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ releaseName }),
+      }
+    );
+    return result.data ?? result;
+  },
+  promote: async (projectName, componentName, sourceEnv, targetEnv) => {
+    const result = await authenticatedFetch(
+      `${OC_API_PREFIX}/projects/${projectName}/components/${componentName}/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceEnv, targetEnv }),
+      }
+    );
+    return result.data ?? result;
+  },
+};

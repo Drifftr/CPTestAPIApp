@@ -10,12 +10,17 @@ import {
   consoleProjectsAPI,
   consoleComponentsAPI,
   workflowRunsAPI,
+  componentReleasesAPI,
+  deployAPI,
+  releaseBindingsAPI,
 } from '../services/api';
 import type {
   PASNamespace,
   PASProject,
   PASComponent,
   ComponentWorkflowRun,
+  ReleaseBinding,
+  EnvironmentRelease,
   SelectedItem,
   CreateProjectRequest,
   CreateComponentRequest,
@@ -58,6 +63,8 @@ export default function ConsolePage() {
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
   const [selectedComponent, setSelectedComponent] = useState<PASComponent | null>(null);
   const [workflowRuns, setWorkflowRuns] = useState<ComponentWorkflowRun[]>([]);
+  const [releaseBindings, setReleaseBindings] = useState<ReleaseBinding[]>([]);
+  const [envReleases, setEnvReleases] = useState<Record<string, EnvironmentRelease>>({});
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => new Set(['org:default']));
   const [actionInProgress, setActionInProgress] = useState<{ type: 'build' | 'deploy'; key: string } | null>(null);
   const selectedComponentRef = useRef<PASComponent | null>(null);
@@ -77,8 +84,6 @@ export default function ConsolePage() {
   const [createComponentOpen, setCreateComponentOpen] = useState(false);
   const [createComponentProject, setCreateComponentProject] = useState('');
 
-  // Timeout cleanup for simulated deploy
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number | null>(null);
 
@@ -97,7 +102,6 @@ export default function ConsolePage() {
 
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       stopPolling();
     };
   }, [stopPolling]);
@@ -158,23 +162,46 @@ export default function ConsolePage() {
     }
   }, [componentsByProject]);
 
-  // Load component detail + workflow runs
+  // Load component detail + workflow runs + release bindings + env releases
   const loadComponentDetail = useCallback(async (projectName: string, componentName: string) => {
     const runsKey = `runs:${projectName}/${componentName}`;
+    const deploymentsKey = `deployments:${projectName}/${componentName}`;
     startLoading(runsKey);
+    startLoading(deploymentsKey);
     clearError(runsKey);
     try {
-      const [detail, runs] = await Promise.all([
+      const [detail, runs, bindings] = await Promise.all([
         consoleComponentsAPI.get(projectName, componentName),
         workflowRunsAPI.list(projectName, componentName),
+        releaseBindingsAPI.list(projectName, componentName),
       ]);
       setSelectedComponent(detail);
       setWorkflowRuns(runs);
+      setReleaseBindings(bindings);
+      // Fetch environment release details for each binding (best-effort)
+      if (bindings.length > 0) {
+        const envResults = await Promise.allSettled(
+          bindings.map((b: ReleaseBinding) =>
+            releaseBindingsAPI.getEnvironmentRelease(projectName, componentName, b.environment)
+              .then((data: EnvironmentRelease) => [b.environment, data] as const)
+          )
+        );
+        const envMap: Record<string, EnvironmentRelease> = {};
+        for (const r of envResults) {
+          if (r.status === 'fulfilled') {
+            envMap[r.value[0]] = r.value[1];
+          }
+        }
+        setEnvReleases(envMap);
+      } else {
+        setEnvReleases({});
+      }
     } catch (err: any) {
       console.error(`Failed to load component detail:`, err);
       setError(runsKey, err.message);
     } finally {
       stopLoading(runsKey);
+      stopLoading(deploymentsKey);
     }
   }, []);
 
@@ -202,9 +229,13 @@ export default function ConsolePage() {
     if (item.type === 'org') {
       setSelectedComponent(null);
       setWorkflowRuns([]);
+      setReleaseBindings([]);
+      setEnvReleases({});
     } else if (item.type === 'project') {
       setSelectedComponent(null);
       setWorkflowRuns([]);
+      setReleaseBindings([]);
+      setEnvReleases({});
       setExpandedNodes(prev => {
         const next = new Set(prev);
         next.add(`proj:${item.projectName}`);
@@ -273,13 +304,62 @@ export default function ConsolePage() {
     }
   }, [workflowRuns, stopPolling]);
 
-  const handleDeploy = useCallback((projectName: string, componentName: string) => {
+  const handleRefreshRuns = useCallback(() => {
+    if (selectedItem?.type === 'component') {
+      loadComponentDetail(selectedItem.projectName, selectedItem.componentName);
+    }
+  }, [selectedItem, loadComponentDetail]);
+
+  const handleRefreshDeployments = useCallback(async () => {
+    if (selectedItem?.type !== 'component') return;
+    const { projectName, componentName } = selectedItem;
+    const deploymentsKey = `deployments:${projectName}/${componentName}`;
+    startLoading(deploymentsKey);
+    try {
+      const bindings = await releaseBindingsAPI.list(projectName, componentName);
+      setReleaseBindings(bindings);
+      if (bindings.length > 0) {
+        const envResults = await Promise.allSettled(
+          bindings.map((b: ReleaseBinding) =>
+            releaseBindingsAPI.getEnvironmentRelease(projectName, componentName, b.environment)
+              .then((data: EnvironmentRelease) => [b.environment, data] as const)
+          )
+        );
+        const envMap: Record<string, EnvironmentRelease> = {};
+        for (const r of envResults) {
+          if (r.status === 'fulfilled') {
+            envMap[r.value[0]] = r.value[1];
+          }
+        }
+        setEnvReleases(envMap);
+      } else {
+        setEnvReleases({});
+      }
+    } catch (err: any) {
+      console.error('Failed to refresh deployments:', err);
+    } finally {
+      stopLoading(deploymentsKey);
+    }
+  }, [selectedItem]);
+
+  const handleDeploy = useCallback(async (projectName: string, componentName: string) => {
     const key = `${projectName}/${componentName}`;
     setActionInProgress({ type: 'deploy', key });
-    timeoutRef.current = setTimeout(() => {
+    clearError(key);
+    try {
+      const release = await componentReleasesAPI.create(projectName, componentName);
+      const releaseName = release?.name || release?.metadata?.name;
+      if (!releaseName) {
+        throw new Error('Release created without a name');
+      }
+      await deployAPI.deploy(projectName, componentName, releaseName);
+      await loadComponentDetail(projectName, componentName);
+    } catch (err: any) {
+      setError(key, err.message);
+    } finally {
       setActionInProgress(null);
-    }, 2000);
-  }, []);
+    }
+  }, [clearError, loadComponentDetail, setError]);
 
   const handleCreateProject = useCallback(async (data: CreateProjectRequest) => {
     await consoleProjectsAPI.create(data);
@@ -358,9 +438,18 @@ export default function ConsolePage() {
               ? `runs:${selectedItem.projectName}/${selectedItem.componentName}`
               : ''
           )}
+          releaseBindings={releaseBindings}
+          envReleases={envReleases}
+          loadingDeployments={isLoading(
+            selectedItem?.type === 'component'
+              ? `deployments:${selectedItem.projectName}/${selectedItem.componentName}`
+              : ''
+          )}
           actionInProgress={actionInProgress}
           onBuild={handleBuild}
           onDeploy={handleDeploy}
+          onRefreshRuns={handleRefreshRuns}
+          onRefreshDeployments={handleRefreshDeployments}
         />
       </Box>
 

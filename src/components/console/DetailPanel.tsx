@@ -1,12 +1,14 @@
-import React from 'react';
-import { Box, Typography, Card, CardContent, Button, Chip, Alert, CircularProgress } from '@wso2/oxygen-ui';
-import { Rocket, Play, GitBranch, Globe, Code, Clock, Layers } from '@wso2/oxygen-ui-icons-react';
+import React, { useState } from 'react';
+import { Box, Typography, Card, CardContent, Button, Chip, Alert, CircularProgress, IconButton, Link } from '@wso2/oxygen-ui';
+import { Rocket, Play, GitBranch, Globe, Code, Clock, Layers, RefreshCw, ChevronRight, ChevronDown } from '@wso2/oxygen-ui-icons-react';
 import { formatIST } from '../../utils/time';
 import type {
   PASNamespace,
   PASProject,
   PASComponent,
   ComponentWorkflowRun,
+  ReleaseBinding,
+  EnvironmentRelease,
   SelectedItem,
 } from '../../types/api';
 
@@ -18,18 +20,27 @@ interface DetailPanelProps {
   componentsByProject: Record<string, PASComponent[]>;
   workflowRuns: ComponentWorkflowRun[];
   loadingRuns: boolean;
+  releaseBindings: ReleaseBinding[];
+  envReleases: Record<string, EnvironmentRelease>;
+  loadingDeployments: boolean;
   actionInProgress: { type: 'build' | 'deploy'; key: string } | null;
   onBuild: (projectName: string, componentName: string) => void;
   onDeploy: (projectName: string, componentName: string) => void;
+  onRefreshRuns?: () => void;
+  onRefreshDeployments?: () => void;
 }
 
 const STATUS_COLOR_MAP: Record<string, 'success' | 'warning' | 'error' | 'info'> = {
   Ready: 'success',
   Active: 'success',
   Succeeded: 'success',
+  Deployed: 'success',
   Building: 'warning',
   Running: 'warning',
+  NotReady: 'warning',
+  Progressing: 'warning',
   Failed: 'error',
+  Degraded: 'error',
   Pending: 'info',
 };
 
@@ -118,28 +129,185 @@ function ProjectDetail({ project }: { project: PASProject }) {
   );
 }
 
+function DeploymentRow({ rb, image, envRelease }: {
+  rb: ReleaseBinding;
+  image?: string;
+  envRelease?: EnvironmentRelease;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const status = rb.status ?? 'Unknown';
+  const httpRoute = envRelease?.spec?.resources?.find(r => r.object?.kind === 'HTTPRoute');
+  const hostnames = httpRoute?.object?.spec?.hostnames ?? [];
+  const svcResource = envRelease?.spec?.resources?.find(r => r.object?.kind === 'Service');
+  const svcPorts = svcResource?.object?.spec?.ports ?? [];
+  const statusResources = envRelease?.status?.resources ?? [];
+  const hasDetails = hostnames.length > 0 || svcPorts.length > 0 || statusResources.length > 0;
+
+  return (
+    <Box>
+      <Box
+        onClick={hasDetails ? () => setExpanded(prev => !prev) : undefined}
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: '20px 100px 1fr 90px 140px',
+          gap: 1,
+          px: 1,
+          py: 0.75,
+          '&:hover': { bgcolor: 'action.hover' },
+          borderRadius: 0.5,
+          cursor: hasDetails ? 'pointer' : 'default',
+          userSelect: 'none',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          {hasDetails ? (
+            expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />
+          ) : (
+            <Box sx={{ width: 14 }} />
+          )}
+        </Box>
+        <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+          {rb.environment}
+        </Typography>
+        <Typography
+          variant="body2"
+          title={image ?? ''}
+          sx={{ fontFamily: 'monospace', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: image ? 'text.primary' : 'text.disabled' }}
+        >
+          {image ?? '—'}
+        </Typography>
+        <Chip
+          label={status}
+          color={STATUS_COLOR_MAP[status] ?? 'info'}
+          size="small"
+          sx={{ height: 20, fontSize: 11 }}
+        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Clock size={12} style={{ opacity: 0.5 }} />
+          <Typography variant="body2" sx={{ fontSize: 12 }}>
+            {formatIST(rb.createdAt)}
+          </Typography>
+        </Box>
+      </Box>
+      {expanded && (
+        <Box sx={{ ml: 3.5, mb: 1.5, mt: 0.5, pl: 1.5, borderLeft: 2, borderColor: 'divider' }}>
+          {hostnames.length > 0 && (
+            <>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
+                Endpoints
+              </Typography>
+              {hostnames.map((hostname: string) => {
+                const url = `http://${hostname}:29080`;
+                return (
+                  <Box key={hostname} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
+                    <Globe size={12} style={{ opacity: 0.5, flexShrink: 0 }} />
+                    <Link
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ fontFamily: 'monospace', fontSize: 11 }}
+                    >
+                      {url}
+                    </Link>
+                  </Box>
+                );
+              })}
+            </>
+          )}
+          {svcPorts.length > 0 && (
+            <Box sx={{ mt: hostnames.length > 0 ? 0.5 : 0 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.25 }}>
+                Ports
+              </Typography>
+              {svcPorts.map((p: { name?: string; port: number; protocol?: string; targetPort?: number }) => (
+                <Box key={p.port} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
+                  <Layers size={12} style={{ opacity: 0.5, flexShrink: 0 }} />
+                  <Typography variant="body2" sx={{ fontSize: 11, color: 'text.secondary' }}>
+                    {p.name ?? 'port'}: {p.port}{p.targetPort && p.targetPort !== p.port ? ` \u2192 ${p.targetPort}` : ''} ({p.protocol ?? 'TCP'})
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+          {statusResources.length > 0 && (
+            <Box sx={{ mt: 0.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.25 }}>
+                Resources
+              </Typography>
+              {statusResources.map((r) => (
+                <Box key={r.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
+                  <Typography
+                    component="span"
+                    sx={{
+                      color: r.healthStatus === 'Healthy' ? 'success.main' : r.healthStatus === 'Degraded' ? 'error.main' : 'warning.main',
+                      fontSize: 8,
+                    }}
+                  >
+                    {'\u25CF'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontSize: 11 }}>
+                    {r.kind}/{r.name}
+                  </Typography>
+                  <Chip
+                    label={r.healthStatus ?? 'Unknown'}
+                    color={STATUS_COLOR_MAP[r.healthStatus ?? ''] ?? 'info'}
+                    size="small"
+                    sx={{ height: 16, fontSize: 10 }}
+                  />
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 function ComponentDetail({
   component,
   projectName,
   workflowRuns,
   loadingRuns,
+  releaseBindings,
+  envReleases,
+  loadingDeployments,
   actionInProgress,
   onBuild,
   onDeploy,
+  onRefreshRuns,
+  onRefreshDeployments,
 }: {
   component: PASComponent;
   projectName: string;
   workflowRuns: ComponentWorkflowRun[];
   loadingRuns: boolean;
+  releaseBindings: ReleaseBinding[];
+  envReleases: Record<string, EnvironmentRelease>;
+  loadingDeployments: boolean;
   actionInProgress: { type: 'build' | 'deploy'; key: string } | null;
   onBuild: () => void;
   onDeploy: () => void;
+  onRefreshRuns?: () => void;
+  onRefreshDeployments?: () => void;
 }) {
   const compKey = `${projectName}/${component.name}`;
   const isBuildInProgress = actionInProgress?.type === 'build' && actionInProgress.key === compKey;
   const isDeployInProgress = actionInProgress?.type === 'deploy' && actionInProgress.key === compKey;
 
   const repo = component.componentWorkflow?.systemParameters?.repository;
+
+  // Build a map: for each release binding, find the image from the last completed
+  // workflow run created at or before the binding's createdAt
+  const TERMINAL_SUCCESS = new Set(['Completed', 'Succeeded']);
+  const completedRuns = [...workflowRuns]
+    .filter(r => TERMINAL_SUCCESS.has(r.status ?? '') && r.image)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const resolveImage = (bindingCreatedAt: string): string | undefined => {
+    const bindingTime = new Date(bindingCreatedAt).getTime();
+    return completedRuns.find(r => new Date(r.createdAt).getTime() <= bindingTime)?.image;
+  };
 
   return (
     <Box>
@@ -207,7 +375,7 @@ function ComponentDetail({
               onClick={onDeploy}
               disabled={!!actionInProgress}
             >
-              {isDeployInProgress ? 'Deploying...' : 'Deploy (Simulated)'}
+              {isDeployInProgress ? 'Deploying...' : 'Deploy'}
             </Button>
           </Box>
 
@@ -218,18 +386,23 @@ function ComponentDetail({
           )}
           {isDeployInProgress && (
             <Alert severity="info" sx={{ mt: 2 }}>
-              Deploy triggered! Rolling out to data plane cluster... (Simulated)
+              Deploy triggered! Rolling out to data plane cluster...
             </Alert>
           )}
         </CardContent>
       </Card>
 
       {/* Build History Card (from workflowRuns) */}
-      <Card variant="outlined">
+      <Card variant="outlined" sx={{ mb: 3 }}>
         <CardContent>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
-            Workflow Runs
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              Workflow Runs
+            </Typography>
+            <IconButton size="small" onClick={onRefreshRuns} disabled={loadingRuns}>
+              <RefreshCw size={16} />
+            </IconButton>
+          </Box>
           {loadingRuns ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
               <CircularProgress size={24} />
@@ -240,7 +413,7 @@ function ComponentDetail({
             </Typography>
           ) : (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {/* Header */}
+              {/* Header (runs are sorted latest-first below) */}
               <Box
                 sx={{
                   display: 'grid',
@@ -265,8 +438,8 @@ function ComponentDetail({
                   Time
                 </Typography>
               </Box>
-              {/* Rows */}
-              {workflowRuns.map((run: ComponentWorkflowRun) => {
+              {/* Rows — sorted latest to oldest */}
+              {[...workflowRuns].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((run: ComponentWorkflowRun) => {
                 const status = run.status ?? 'Unknown';
                 return (
                   <Box
@@ -317,6 +490,65 @@ function ComponentDetail({
           )}
         </CardContent>
       </Card>
+
+      {/* Deployments Card */}
+      <Card variant="outlined">
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              Deployments
+            </Typography>
+            <IconButton size="small" onClick={onRefreshDeployments} disabled={loadingDeployments}>
+              <RefreshCw size={16} />
+            </IconButton>
+          </Box>
+          {loadingDeployments ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : releaseBindings.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No deployments yet
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '20px 100px 1fr 90px 140px',
+                  gap: 1,
+                  px: 1,
+                  py: 0.75,
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                }}
+              >
+                <Box />
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                  Environment
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                  Image
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                  Status
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                  Created
+                </Typography>
+              </Box>
+              {[...releaseBindings].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((rb: ReleaseBinding) => (
+                <DeploymentRow
+                  key={rb.name}
+                  rb={rb}
+                  image={resolveImage(rb.createdAt)}
+                  envRelease={envReleases[rb.environment]}
+                />
+              ))}
+            </Box>
+          )}
+        </CardContent>
+      </Card>
     </Box>
   );
 }
@@ -329,9 +561,14 @@ export default function DetailPanel({
   componentsByProject,
   workflowRuns,
   loadingRuns,
+  releaseBindings,
+  envReleases,
+  loadingDeployments,
   actionInProgress,
   onBuild,
   onDeploy,
+  onRefreshRuns,
+  onRefreshDeployments,
 }: DetailPanelProps) {
   if (!selectedItem) return <EmptyState />;
 
@@ -360,9 +597,14 @@ export default function DetailPanel({
         projectName={selectedItem.projectName}
         workflowRuns={workflowRuns}
         loadingRuns={loadingRuns}
+        releaseBindings={releaseBindings}
+        envReleases={envReleases}
+        loadingDeployments={loadingDeployments}
         actionInProgress={actionInProgress}
         onBuild={() => onBuild(selectedItem.projectName, selectedItem.componentName)}
         onDeploy={() => onDeploy(selectedItem.projectName, selectedItem.componentName)}
+        onRefreshRuns={onRefreshRuns}
+        onRefreshDeployments={onRefreshDeployments}
       />
     );
   }
