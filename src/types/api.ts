@@ -18,6 +18,7 @@ export interface PASProject {
 }
 
 export interface ComponentWorkflowConfig {
+  kind?: string;
   name?: string;
   systemParameters?: {
     repository?: {
@@ -41,10 +42,10 @@ export interface PASComponent {
   createdAt: string;
   status?: string;
   workload?: Record<string, any>;
-  componentWorkflow?: ComponentWorkflowConfig;
+  workflow?: ComponentWorkflowConfig;
 }
 
-export interface ComponentWorkflowRun {
+export interface WorkflowRun {
   name: string;
   uuid?: string;
   componentName: string;
@@ -64,48 +65,25 @@ export interface ReleaseBinding {
   namespaceName: string;
   environment: string;
   releaseName?: string;
+  state?: 'Active' | 'Undeploy';
   status?: string;
   createdAt: string;
 }
 
-export interface EnvironmentReleaseResource {
-  id: string;
+export interface ResourceNode {
   kind: string;
   name: string;
-  namespace: string;
-  healthStatus?: string;
-  object?: {
-    spec?: {
-      hostnames?: string[];
-      ports?: Array<{ name?: string; port: number; protocol?: string; targetPort?: number }>;
-      rules?: Array<{
-        backendRefs?: Array<{ name: string; port: number }>;
-        matches?: Array<{ path?: { type: string; value: string } }>;
-      }>;
-      [key: string]: any;
-    };
-    [key: string]: any;
-  };
-  status?: Record<string, any>;
+  namespace?: string;
+  uid?: string;
+  health?: { status?: string; message?: string };
+  object?: Record<string, any>;
+  createdAt?: string;
 }
 
-export interface EnvironmentRelease {
-  spec: {
-    owner: { projectName: string; componentName: string };
-    environmentName: string;
-    resources: EnvironmentReleaseResource[];
-    targetPlane: string;
-  };
-  status?: {
-    resources: Array<{
-      id: string;
-      kind: string;
-      name: string;
-      namespace: string;
-      healthStatus?: string;
-      [key: string]: any;
-    }>;
-  };
+export interface ReleaseResourceTree {
+  name?: string;
+  targetPlane?: string;
+  nodes?: ResourceNode[];
 }
 
 export interface CreateProjectRequest {
@@ -119,9 +97,10 @@ export interface CreateComponentRequest {
   name: string;
   displayName?: string;
   description?: string;
-  componentType: string;
+  componentType: { kind?: string; name: string };
   autoDeploy?: boolean;
   workflow?: {
+    kind?: string;
     name: string;
     systemParameters: {
       repository: {

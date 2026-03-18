@@ -10,8 +10,8 @@ This document is a code-accurate onboarding demo for platform console teams. It 
 - Project list and create.
 - Component list and create (with optional workflow config).
 - Build trigger (workflow run create) and polling until terminal status.
-- Deployment trigger (release create + deploy) and deployment details.
-- Read-only retrieval of component details, workflow runs, release bindings, and environment release resources.
+- Deployment trigger (generate-release) and deployment details.
+- Read-only retrieval of component details, workflow runs, release bindings, and release resource trees.
 
 ## What This Demo Does Not Cover
 
@@ -58,23 +58,21 @@ For browser-based local dev, keep `REACT_APP_API_BASE_URL` empty so the proxy av
 
 ## API Map
 
-All calls include `Authorization: Bearer <access_token>`.
+All calls include `Authorization: Bearer <access_token>`. OpenChoreo rc.1 uses flat namespace-level paths (no project/component nesting).
 
 - `GET /orgs/:handle` (defined, not used by UI)
 - `GET /projects`
 - `POST /projects`
 - `GET /projects/:projectName`
-- `GET /projects/:projectName/components`
-- `POST /projects/:projectName/components`
-- `GET /projects/:projectName/components/:componentName`
-- `GET /projects/:projectName/components/:componentName/workflow-runs`
-- `POST /projects/:projectName/components/:componentName/workflow-runs`
-- `POST /projects/:projectName/components/:componentName/component-releases`
-- `GET /projects/:projectName/components/:componentName/component-releases`
-- `GET /projects/:projectName/components/:componentName/release-bindings`
-- `GET /projects/:projectName/components/:componentName/environments/:environment/release`
-- `POST /projects/:projectName/components/:componentName/deploy`
-- `POST /projects/:projectName/components/:componentName/promote`
+- `GET /components?labelSelector=openchoreo.dev/project-name=:projectName`
+- `POST /components`
+- `GET /components/:componentName`
+- `GET /workflowruns?workflow=:componentName`
+- `POST /workflowruns`
+- `GET /componentreleases?component=:componentName`
+- `GET /releasebindings?component=:componentName`
+- `GET /releasebindings/:name/k8sresources/tree`
+- `POST /components/:componentName/generate-release`
 
 ## Payload Examples (From Current UI)
 
@@ -96,8 +94,9 @@ Create component (`CPTestAPIApp/src/components/console/CreateComponentDialog.tsx
   "name": "my-service",
   "displayName": "My Service",
   "description": "Brief description",
-  "componentType": "deployment/service",
+  "componentType": { "name": "deployment/service" },
   "workflow": {
+    "kind": "ClusterWorkflow",
     "name": "my-service-build",
     "systemParameters": {
       "repository": {
@@ -114,24 +113,15 @@ Trigger build (`CPTestAPIApp/src/pages/ConsolePage.tsx`):
 
 ```json
 {
-  "workflow": { "...": "component.componentWorkflow" }
+  "workflow": { "...": "component.workflow" }
 }
 ```
 
-Trigger deploy (`CPTestAPIApp/src/pages/ConsolePage.tsx`):
+Trigger deploy / generate release (`CPTestAPIApp/src/pages/ConsolePage.tsx`):
 
 ```json
 {
-  "releaseName": "<from component-releases response>"
-}
-```
-
-Promote (API is defined but not wired in UI):
-
-```json
-{
-  "sourceEnv": "dev",
-  "targetEnv": "prod"
+  "releaseName": "optional-name"
 }
 ```
 
@@ -141,16 +131,16 @@ Promote (API is defined but not wired in UI):
 2. Org is derived from token claims (`ouHandle`, `ouName`). No org API call is required.
 3. Projects are listed via `GET /projects`.
 4. Create project dialog submits `POST /projects` and refreshes the list.
-5. Expanding a project loads components via `GET /projects/:project/components`.
-6. Create component dialog submits `POST /projects/:project/components`.
+5. Expanding a project loads components via `GET /components?labelSelector=openchoreo.dev/project-name=:project`.
+6. Create component dialog submits `POST /components` with `componentType` as an object (`{ name: "deployment/service" }`) and workflow `kind: "ClusterWorkflow"`.
 7. Selecting a component loads:
-   - `GET /projects/:project/components/:component`
-   - `GET /projects/:project/components/:component/workflow-runs`
-   - `GET /projects/:project/components/:component/release-bindings`
-   - For each binding: `GET /projects/:project/components/:component/environments/:env/release`
-8. Build triggers `POST /workflow-runs` and starts polling every 5s until a terminal status is reached.
-9. Deploy triggers `POST /component-releases` then `POST /deploy`.
-10. Deployment details are refreshed via the release binding and environment release APIs.
+   - `GET /components/:component`
+   - `GET /workflowruns?workflow=:component`
+   - `GET /releasebindings?component=:component`
+   - For each binding: `GET /releasebindings/:name/k8sresources/tree`
+8. Build triggers `POST /workflowruns` and starts polling every 5s until a terminal status is reached.
+9. Deploy triggers `POST /components/:component/generate-release` (platform auto-deploys if `autoDeploy: true`).
+10. Deployment details are refreshed via the release bindings and resource tree APIs.
 
 ## UI Action To Code Mapping
 
@@ -182,8 +172,10 @@ REACT_APP_DEV_BYPASS_AUTH=true npm start
 - Propagate access tokens to your API client (avoid races).
 - Derive org context from token claims or fetch org by handle.
 - Use `GET /projects` and `POST /projects` to manage projects.
-- Use `GET /projects/:project/components` and `POST /projects/:project/components` to manage components.
-- Use `POST /workflow-runs` to trigger builds and poll until terminal status.
-- Use `POST /component-releases` then `POST /deploy` to deploy.
-- Use release bindings and environment release APIs to surface deployment details.
+- Use `GET /components` (with label selector) and `POST /components` to manage components.
+- Send `componentType` as `{ name: "deployment/service" }` (object, not string).
+- Send workflow `kind: "ClusterWorkflow"` when creating components with a workflow.
+- Use `POST /workflowruns` to trigger builds and poll until terminal status.
+- Use `POST /components/:component/generate-release` to deploy (replaces the old component-releases + deploy two-step).
+- Use `GET /releasebindings` and `GET /releasebindings/:name/k8sresources/tree` to surface deployment details.
 - In browser-based dev, use a server-side proxy to avoid CORS header stripping.
