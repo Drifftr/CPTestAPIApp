@@ -6,9 +6,9 @@ import type {
   PASNamespace,
   PASProject,
   PASComponent,
-  ComponentWorkflowRun,
+  WorkflowRun,
   ReleaseBinding,
-  EnvironmentRelease,
+  ReleaseResourceTree,
   SelectedItem,
 } from '../../types/api';
 
@@ -18,10 +18,10 @@ interface DetailPanelProps {
   selectedItem: SelectedItem | null;
   selectedComponent: PASComponent | null;
   componentsByProject: Record<string, PASComponent[]>;
-  workflowRuns: ComponentWorkflowRun[];
+  workflowRuns: WorkflowRun[];
   loadingRuns: boolean;
   releaseBindings: ReleaseBinding[];
-  envReleases: Record<string, EnvironmentRelease>;
+  envReleases: Record<string, ReleaseResourceTree>;
   loadingDeployments: boolean;
   actionInProgress: { type: 'build' | 'deploy'; key: string } | null;
   onBuild: (projectName: string, componentName: string) => void;
@@ -132,16 +132,16 @@ function ProjectDetail({ project }: { project: PASProject }) {
 function DeploymentRow({ rb, image, envRelease }: {
   rb: ReleaseBinding;
   image?: string;
-  envRelease?: EnvironmentRelease;
+  envRelease?: ReleaseResourceTree;
 }) {
   const [expanded, setExpanded] = useState(false);
   const status = rb.status ?? 'Unknown';
-  const httpRoute = envRelease?.spec?.resources?.find(r => r.object?.kind === 'HTTPRoute');
+  const nodes = envRelease?.nodes ?? [];
+  const httpRoute = nodes.find(r => r.kind === 'HTTPRoute');
   const hostnames = httpRoute?.object?.spec?.hostnames ?? [];
-  const svcResource = envRelease?.spec?.resources?.find(r => r.object?.kind === 'Service');
+  const svcResource = nodes.find(r => r.kind === 'Service');
   const svcPorts = svcResource?.object?.spec?.ports ?? [];
-  const statusResources = envRelease?.status?.resources ?? [];
-  const hasDetails = hostnames.length > 0 || svcPorts.length > 0 || statusResources.length > 0;
+  const hasDetails = hostnames.length > 0 || svcPorts.length > 0 || nodes.length > 0;
 
   return (
     <Box>
@@ -229,17 +229,17 @@ function DeploymentRow({ rb, image, envRelease }: {
               ))}
             </Box>
           )}
-          {statusResources.length > 0 && (
+          {nodes.length > 0 && (
             <Box sx={{ mt: 0.5 }}>
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.25 }}>
                 Resources
               </Typography>
-              {statusResources.map((r) => (
-                <Box key={r.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
+              {nodes.map((r) => (
+                <Box key={r.uid ?? `${r.kind}/${r.name}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
                   <Typography
                     component="span"
                     sx={{
-                      color: r.healthStatus === 'Healthy' ? 'success.main' : r.healthStatus === 'Degraded' ? 'error.main' : 'warning.main',
+                      color: r.health?.status === 'Healthy' ? 'success.main' : r.health?.status === 'Degraded' ? 'error.main' : 'warning.main',
                       fontSize: 8,
                     }}
                   >
@@ -249,8 +249,8 @@ function DeploymentRow({ rb, image, envRelease }: {
                     {r.kind}/{r.name}
                   </Typography>
                   <Chip
-                    label={r.healthStatus ?? 'Unknown'}
-                    color={STATUS_COLOR_MAP[r.healthStatus ?? ''] ?? 'info'}
+                    label={r.health?.status ?? 'Unknown'}
+                    color={STATUS_COLOR_MAP[r.health?.status ?? ''] ?? 'info'}
                     size="small"
                     sx={{ height: 16, fontSize: 10 }}
                   />
@@ -280,10 +280,10 @@ function ComponentDetail({
 }: {
   component: PASComponent;
   projectName: string;
-  workflowRuns: ComponentWorkflowRun[];
+  workflowRuns: WorkflowRun[];
   loadingRuns: boolean;
   releaseBindings: ReleaseBinding[];
-  envReleases: Record<string, EnvironmentRelease>;
+  envReleases: Record<string, ReleaseResourceTree>;
   loadingDeployments: boolean;
   actionInProgress: { type: 'build' | 'deploy'; key: string } | null;
   onBuild: () => void;
@@ -295,7 +295,7 @@ function ComponentDetail({
   const isBuildInProgress = actionInProgress?.type === 'build' && actionInProgress.key === compKey;
   const isDeployInProgress = actionInProgress?.type === 'deploy' && actionInProgress.key === compKey;
 
-  const repo = component.componentWorkflow?.systemParameters?.repository;
+  const repo = component.workflow?.systemParameters?.repository;
 
   // Build a map: for each release binding, find the image from the last completed
   // workflow run created at or before the binding's createdAt
@@ -439,7 +439,7 @@ function ComponentDetail({
                 </Typography>
               </Box>
               {/* Rows — sorted latest to oldest */}
-              {[...workflowRuns].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((run: ComponentWorkflowRun) => {
+              {[...workflowRuns].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((run: WorkflowRun) => {
                 const status = run.status ?? 'Unknown';
                 return (
                   <Box

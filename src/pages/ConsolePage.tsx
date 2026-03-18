@@ -10,17 +10,15 @@ import {
   consoleProjectsAPI,
   consoleComponentsAPI,
   workflowRunsAPI,
-  componentReleasesAPI,
-  deployAPI,
   releaseBindingsAPI,
 } from '../services/api';
 import type {
   PASNamespace,
   PASProject,
   PASComponent,
-  ComponentWorkflowRun,
+  WorkflowRun,
   ReleaseBinding,
-  EnvironmentRelease,
+  ReleaseResourceTree,
   SelectedItem,
   CreateProjectRequest,
   CreateComponentRequest,
@@ -62,9 +60,9 @@ export default function ConsolePage() {
   const [componentsByProject, setComponentsByProject] = useState<Record<string, PASComponent[]>>({});
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
   const [selectedComponent, setSelectedComponent] = useState<PASComponent | null>(null);
-  const [workflowRuns, setWorkflowRuns] = useState<ComponentWorkflowRun[]>([]);
+  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
   const [releaseBindings, setReleaseBindings] = useState<ReleaseBinding[]>([]);
-  const [envReleases, setEnvReleases] = useState<Record<string, EnvironmentRelease>>({});
+  const [envReleases, setEnvReleases] = useState<Record<string, ReleaseResourceTree>>({});
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => new Set(['org:default']));
   const [actionInProgress, setActionInProgress] = useState<{ type: 'build' | 'deploy'; key: string } | null>(null);
   const selectedComponentRef = useRef<PASComponent | null>(null);
@@ -178,15 +176,15 @@ export default function ConsolePage() {
       setSelectedComponent(detail);
       setWorkflowRuns(runs);
       setReleaseBindings(bindings);
-      // Fetch environment release details for each binding (best-effort)
+      // Fetch resource tree for each binding (best-effort)
       if (bindings.length > 0) {
         const envResults = await Promise.allSettled(
           bindings.map((b: ReleaseBinding) =>
-            releaseBindingsAPI.getEnvironmentRelease(projectName, componentName, b.environment)
-              .then((data: EnvironmentRelease) => [b.environment, data] as const)
+            releaseBindingsAPI.getResourceTree(b.name)
+              .then((data: ReleaseResourceTree) => [b.environment, data] as const)
           )
         );
-        const envMap: Record<string, EnvironmentRelease> = {};
+        const envMap: Record<string, ReleaseResourceTree> = {};
         for (const r of envResults) {
           if (r.status === 'fulfilled') {
             envMap[r.value[0]] = r.value[1];
@@ -256,7 +254,7 @@ export default function ConsolePage() {
   const handleBuild = useCallback(async (projectName: string, componentName: string) => {
     const key = `${projectName}/${componentName}`;
     const comp = selectedComponentRef.current;
-    if (!comp?.componentWorkflow) {
+    if (!comp?.workflow) {
       setError(key, 'No workflow configured for this component');
       return;
     }
@@ -264,7 +262,7 @@ export default function ConsolePage() {
     clearError(key);
     try {
       await workflowRunsAPI.create(projectName, componentName, {
-        workflow: comp.componentWorkflow,
+        workflow: comp.workflow,
       });
       // Refresh component detail after successful create
       await loadComponentDetail(projectName, componentName);
@@ -321,11 +319,11 @@ export default function ConsolePage() {
       if (bindings.length > 0) {
         const envResults = await Promise.allSettled(
           bindings.map((b: ReleaseBinding) =>
-            releaseBindingsAPI.getEnvironmentRelease(projectName, componentName, b.environment)
-              .then((data: EnvironmentRelease) => [b.environment, data] as const)
+            releaseBindingsAPI.getResourceTree(b.name)
+              .then((data: ReleaseResourceTree) => [b.environment, data] as const)
           )
         );
-        const envMap: Record<string, EnvironmentRelease> = {};
+        const envMap: Record<string, ReleaseResourceTree> = {};
         for (const r of envResults) {
           if (r.status === 'fulfilled') {
             envMap[r.value[0]] = r.value[1];
@@ -347,12 +345,7 @@ export default function ConsolePage() {
     setActionInProgress({ type: 'deploy', key });
     clearError(key);
     try {
-      const release = await componentReleasesAPI.create(projectName, componentName);
-      const releaseName = release?.name || release?.metadata?.name;
-      if (!releaseName) {
-        throw new Error('Release created without a name');
-      }
-      await deployAPI.deploy(projectName, componentName, releaseName);
+      await consoleComponentsAPI.generateRelease(componentName);
       await loadComponentDetail(projectName, componentName);
     } catch (err: any) {
       setError(key, err.message);
