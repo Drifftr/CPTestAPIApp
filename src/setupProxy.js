@@ -2,7 +2,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 
 module.exports = function(app) {
   const ocApiProxy = createProxyMiddleware({
-    target: 'http://development-default.openchoreoapis.localhost:19080',
+    target: 'http://development-wso2cloud.openchoreoapis.localhost:19080',
     changeOrigin: true,
     secure: false,
     logLevel: 'debug',
