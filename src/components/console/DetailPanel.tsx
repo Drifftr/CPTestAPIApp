@@ -141,6 +141,10 @@ function DeploymentRow({ rb, image, envRelease }: {
   const hostnames = httpRoute?.object?.spec?.hostnames ?? [];
   const svcResource = nodes.find(r => r.kind === 'Service');
   const svcPorts = svcResource?.object?.spec?.ports ?? [];
+  // Fallback: extract image from Deployment in the resource tree
+  const deploymentNode = nodes.find(r => r.kind === 'Deployment');
+  const treeImage = deploymentNode?.object?.spec?.template?.spec?.containers?.[0]?.image;
+  const resolvedImage = image ?? treeImage;
   const hasDetails = hostnames.length > 0 || svcPorts.length > 0 || nodes.length > 0;
 
   return (
@@ -171,10 +175,10 @@ function DeploymentRow({ rb, image, envRelease }: {
         </Typography>
         <Typography
           variant="body2"
-          title={image ?? ''}
-          sx={{ fontFamily: 'monospace', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: image ? 'text.primary' : 'text.disabled' }}
+          title={resolvedImage ?? ''}
+          sx={{ fontFamily: 'monospace', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: resolvedImage ? 'text.primary' : 'text.disabled' }}
         >
-          {image ?? '—'}
+          {resolvedImage ?? '—'}
         </Typography>
         <Chip
           label={status}
