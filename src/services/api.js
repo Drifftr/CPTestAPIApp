@@ -181,6 +181,18 @@ export const consoleProjectsAPI = {
   },
 };
 
+export const componentTypesAPI = {
+  list: async () => {
+    const result = await authenticatedFetch(`${OC_API_PREFIX}/componenttypes`);
+    return (result.items || []).map(item => ({
+      name: item.metadata?.name,
+      workloadType: item.spec?.workloadType || 'deployment',
+      // value used in component creation: "{workloadType}/{name}"
+      value: `${item.spec?.workloadType || 'deployment'}/${item.metadata?.name}`,
+    }));
+  },
+};
+
 export const consoleComponentsAPI = {
   list: async (projectName) => {
     const result = await authenticatedFetch(
@@ -248,16 +260,39 @@ export const consoleComponentsAPI = {
 export const workflowRunsAPI = {
   list: async (projectName, componentName) => {
     const result = await authenticatedFetch(
-      `${OC_API_PREFIX}/workflowruns?workflow=${componentName}`
+      `${OC_API_PREFIX}/workflowruns`
     );
-    return (result.items || []).map(normalizeWorkflowRun);
+    return (result.items || [])
+      .filter(item => item.metadata?.labels?.['openchoreo.dev/component'] === componentName)
+      .map(normalizeWorkflowRun);
   },
   create: async (projectName, componentName, payload) => {
+    const wf = payload.workflow || {};
+    const body = {
+      metadata: {
+        name: `${componentName}-${Date.now().toString(36)}`,
+        labels: {
+          'openchoreo.dev/component': componentName,
+          'openchoreo.dev/project': projectName,
+        },
+      },
+      spec: {
+        workflow: {
+          kind: wf.kind || 'ClusterWorkflow',
+          name: wf.name,
+          ...(wf.systemParameters?.repository ? {
+            parameters: {
+              repository: wf.systemParameters.repository,
+            },
+          } : {}),
+        },
+      },
+    };
     return authenticatedFetch(
       `${OC_API_PREFIX}/workflowruns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       }
     );
   },
@@ -283,8 +318,10 @@ export const releaseBindingsAPI = {
     return (result.items || []).map(normalizeReleaseBinding);
   },
   getResourceTree: async (releaseBindingName) => {
-    return authenticatedFetch(
+    const result = await authenticatedFetch(
       `${OC_API_PREFIX}/releasebindings/${releaseBindingName}/k8sresources/tree`
     );
+    // API returns { renderedReleases: [{ name, nodes, ... }] } — extract first entry
+    return result?.renderedReleases?.[0] ?? result;
   },
 };

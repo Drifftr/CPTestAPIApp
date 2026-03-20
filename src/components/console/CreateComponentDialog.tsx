@@ -14,6 +14,13 @@ import {
 } from '@wso2/oxygen-ui';
 import { X } from '@wso2/oxygen-ui-icons-react';
 import type { CreateComponentRequest } from '../../types/api';
+import { componentTypesAPI } from '../../services/api';
+
+interface ComponentTypeOption {
+  name: string;
+  workloadType: string;
+  value: string; // "{workloadType}/{name}"
+}
 
 interface CreateComponentDialogProps {
   open: boolean;
@@ -24,22 +31,25 @@ interface CreateComponentDialogProps {
 
 const WORKFLOW_OPTIONS_BY_COMPONENT_TYPE: Record<string, Array<{ value: string; label: string }>> = {
   'deployment/service': [
-    { value: 'google-cloud-buildpacks', label: 'Google Cloud Buildpacks' },
-    { value: 'ballerina-buildpack', label: 'Ballerina Buildpack' },
-    { value: 'docker', label: 'Docker' },
+    { value: 'gcp-buildpacks-builder', label: 'Google Cloud Buildpacks' },
+    { value: 'paketo-buildpacks-builder', label: 'Paketo Buildpacks' },
+    { value: 'ballerina-buildpack-builder', label: 'Ballerina Buildpack' },
+    { value: 'dockerfile-builder', label: 'Dockerfile' },
   ],
   'deployment/worker': [
-    { value: 'google-cloud-buildpacks', label: 'Google Cloud Buildpacks' },
-    { value: 'docker', label: 'Docker' },
+    { value: 'gcp-buildpacks-builder', label: 'Google Cloud Buildpacks' },
+    { value: 'paketo-buildpacks-builder', label: 'Paketo Buildpacks' },
+    { value: 'dockerfile-builder', label: 'Dockerfile' },
   ],
   'deployment/web-application': [
-    { value: 'react', label: 'React' },
-    { value: 'docker', label: 'Docker' },
-    { value: 'react-gitops-release', label: 'React GitOps Release' },
+    { value: 'dockerfile-builder', label: 'Dockerfile' },
+    { value: 'paketo-buildpacks-builder', label: 'Paketo Buildpacks' },
+    { value: 'gcp-buildpacks-builder', label: 'Google Cloud Buildpacks' },
   ],
   'cronjob/scheduled-task': [
-    { value: 'google-cloud-buildpacks', label: 'Google Cloud Buildpacks' },
-    { value: 'docker', label: 'Docker' },
+    { value: 'gcp-buildpacks-builder', label: 'Google Cloud Buildpacks' },
+    { value: 'paketo-buildpacks-builder', label: 'Paketo Buildpacks' },
+    { value: 'dockerfile-builder', label: 'Dockerfile' },
   ],
 };
 
@@ -47,13 +57,24 @@ export default function CreateComponentDialog({ open, projectName, onClose, onSu
   const [name, setName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
+  const [componentTypeOptions, setComponentTypeOptions] = useState<ComponentTypeOption[]>([]);
   const [componentType, setComponentType] = useState('deployment/service');
-  const [workflowName, setWorkflowName] = useState('google-cloud-buildpacks');
+  const [workflowName, setWorkflowName] = useState('gcp-buildpacks-builder');
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('main');
   const [appPath, setAppPath] = useState('/');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    if (!open) return;
+    componentTypesAPI.list().then(types => {
+      setComponentTypeOptions(types);
+      if (types.length > 0 && !types.some(t => t.value === componentType)) {
+        setComponentType(types[0].value);
+      }
+    }).catch(() => {});
+  }, [open]);
+
   const workflowOptions = useMemo(
     () => WORKFLOW_OPTIONS_BY_COMPONENT_TYPE[componentType.trim()] || [],
     [componentType]
@@ -110,7 +131,7 @@ export default function CreateComponentDialog({ open, projectName, onClose, onSu
     setDisplayName('');
     setDescription('');
     setComponentType('deployment/service');
-    setWorkflowName('google-cloud-buildpacks');
+    setWorkflowName('gcp-buildpacks-builder');
     setRepository('');
     setBranch('main');
     setAppPath('/');
@@ -161,14 +182,20 @@ export default function CreateComponentDialog({ open, projectName, onClose, onSu
           />
           <TextField
             label="Component Type"
+            select
             required
             fullWidth
             value={componentType}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setComponentType(e.target.value)}
-            placeholder="deployment/service"
-            helperText="Format: {workloadType}/{name} — e.g., deployment/service, deployment/web-application, cronjob/scheduled-task"
-            disabled={loading}
-          />
+            helperText="Select the component type for this component"
+            disabled={loading || componentTypeOptions.length === 0}
+          >
+            {componentTypeOptions.map((ct) => (
+              <MenuItem key={ct.value} value={ct.value}>
+                {ct.name} ({ct.workloadType})
+              </MenuItem>
+            ))}
+          </TextField>
           <TextField
             label="Workflow Name"
             select
